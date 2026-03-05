@@ -4,6 +4,7 @@ import ProgressBar from './components/ProgressBar.jsx';
 import ModelViewer from './components/ModelViewer.jsx';
 import History, { saveToHistory } from './components/History.jsx';
 import PostProcessPanel from './components/PostProcessPanel.jsx';
+import MusicTimeline from './components/MusicTimeline.jsx';
 import { useTaskPolling } from './hooks/useTaskPolling.js';
 import { getDownloadUrl } from './utils/api.js';
 
@@ -33,6 +34,9 @@ export default function App() {
   const localFileInputRef = useRef(null);
   const localObjectUrlRef = useRef(null);
 
+  // Action tracks for the unified timeline
+  const [actionTracks, setActionTracks] = useState([]);
+
   const handleLocalFileOpen = useCallback((e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -42,6 +46,15 @@ export default function App() {
     localObjectUrlRef.current = objectUrl;
     const ext = file.name.split('.').pop().toLowerCase();
     setPipelinePreview({ url: objectUrl, label: file.name, fileType: ext });
+    // Add to unified timeline as an action track (default 8s duration)
+    setActionTracks(prev => [...prev, {
+      id: Date.now(),
+      name: file.name,
+      duration: 8,
+      offset: 0,
+      fileType: ext,
+      colorIdx: prev.length,
+    }]);
     // Reset input so the same file can be re-selected
     e.target.value = '';
   }, []);
@@ -195,6 +208,9 @@ export default function App() {
               </button>
             </div>
           )}
+
+          {/* Unified timeline — always visible */}
+          <MusicTimeline actionTracks={actionTracks} onActionTracksChange={setActionTracks} />
 
           {/* Pipeline panel — only after successful generation */}
           {status === 'success' && result?.task_id && (
