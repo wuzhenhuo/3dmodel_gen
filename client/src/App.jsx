@@ -82,7 +82,7 @@ export default function App() {
         {/* Studio branding banner */}
         <div className="text-center py-1.5 border-b border-gray-800/60 bg-gray-900/40">
           <p className="text-xs font-medium tracking-widest text-gray-400 uppercase">
-            吴振数字雕塑工作室 &nbsp;·&nbsp; 明日剧场 &nbsp;·&nbsp; 2026
+            AI动态雕塑工作室，吴振，明日剧场 &nbsp;·&nbsp; 2026
           </p>
         </div>
         {/* App bar */}
