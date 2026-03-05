@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import PromptInput from './components/PromptInput.jsx';
 import ProgressBar from './components/ProgressBar.jsx';
 import ModelViewer from './components/ModelViewer.jsx';
@@ -30,6 +30,21 @@ export default function App() {
 
   // Pipeline result can override the viewer (e.g. animated model)
   const [pipelinePreview, setPipelinePreview] = useState(null); // { url, label }
+  const localFileInputRef = useRef(null);
+  const localObjectUrlRef = useRef(null);
+
+  const handleLocalFileOpen = useCallback((e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Revoke previous object URL to free memory
+    if (localObjectUrlRef.current) URL.revokeObjectURL(localObjectUrlRef.current);
+    const objectUrl = URL.createObjectURL(file);
+    localObjectUrlRef.current = objectUrl;
+    const ext = file.name.split('.').pop().toLowerCase();
+    setPipelinePreview({ url: objectUrl, label: file.name, fileType: ext });
+    // Reset input so the same file can be re-selected
+    e.target.value = '';
+  }, []);
 
   const handleSave = useCallback(() => {
     if (result) {
@@ -57,6 +72,7 @@ export default function App() {
   // Pipeline result takes priority in the viewer
   const activeViewerUrl = pipelinePreview?.url ?? baseModelUrl;
   const activeViewerLabel = pipelinePreview?.label ?? null;
+  const activeViewerFileType = pipelinePreview?.fileType ?? 'gltf';
 
   return (
     <div className="flex flex-col h-screen bg-gray-950 overflow-hidden">
@@ -91,9 +107,19 @@ export default function App() {
                 ← 返回原始模型
               </button>
             )}
-            <span className="text-xs text-gray-600 px-2 py-1 rounded bg-gray-800/80 border border-gray-700/50">
-              Powered by Tripo AI
-            </span>
+            <button
+              onClick={() => localFileInputRef.current?.click()}
+              className="px-3 py-1 text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700/50 rounded text-gray-300 hover:text-white transition"
+            >
+              上传文件预览
+            </button>
+            <input
+              ref={localFileInputRef}
+              type="file"
+              accept=".glb,.gltf,.fbx"
+              className="hidden"
+              onChange={handleLocalFileOpen}
+            />
           </div>
         </div>
       </header>
@@ -133,7 +159,7 @@ export default function App() {
           {/* Viewer */}
           <div className="flex-1 relative overflow-hidden bg-gray-950">
             {activeViewerUrl ? (
-              <ModelViewer modelUrl={activeViewerUrl} label={activeViewerLabel} />
+              <ModelViewer modelUrl={activeViewerUrl} label={activeViewerLabel} fileType={activeViewerFileType} />
             ) : (
               <EmptyState />
             )}

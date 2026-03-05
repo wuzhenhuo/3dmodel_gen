@@ -2,32 +2,34 @@ import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls, Environment, Grid, Html } from '@react-three/drei';
 import { Suspense, useEffect, useState, useRef, useMemo } from 'react';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import * as THREE from 'three';
 
-function Model({ url, onLoaded, onHasAnimation }) {
-  const [gltf, setGltf] = useState(null);
+function Model({ url, fileType = 'gltf', onLoaded, onHasAnimation }) {
+  const [scene, setScene] = useState(null);
   const [error, setError] = useState(null);
   const mixerRef = useRef(null);
   const { camera } = useThree();
 
-  // Advance animation mixer every frame
   useFrame((_, delta) => {
     mixerRef.current?.update(delta);
   });
 
   useEffect(() => {
-    const loader = new GLTFLoader();
-    setGltf(null);
+    setScene(null);
     setError(null);
-
-    // Clean up previous mixer
     mixerRef.current?.stopAllAction();
     mixerRef.current = null;
+
+    const isFbx = fileType === 'fbx';
+    const loader = isFbx ? new FBXLoader() : new GLTFLoader();
 
     loader.load(
       url,
       (loaded) => {
-        const s = loaded.scene;
+        // GLTFLoader returns { scene, animations }, FBXLoader returns Object3D directly
+        const s = isFbx ? loaded : loaded.scene;
+        const animations = isFbx ? loaded.animations : loaded.animations;
 
         // Auto-center and scale
         const box = new THREE.Box3().setFromObject(s);
@@ -43,17 +45,16 @@ function Model({ url, onLoaded, onHasAnimation }) {
         camera.position.set(3, 2, 3);
         camera.lookAt(0, 0, 0);
 
-        // Wire up animations if present
-        if (loaded.animations?.length > 0) {
+        if (animations?.length > 0) {
           const mixer = new THREE.AnimationMixer(s);
-          loaded.animations.forEach(clip => mixer.clipAction(clip).play());
+          animations.forEach(clip => mixer.clipAction(clip).play());
           mixerRef.current = mixer;
           onHasAnimation?.(true);
         } else {
           onHasAnimation?.(false);
         }
 
-        setGltf(loaded);
+        setScene(s);
         onLoaded?.();
       },
       undefined,
@@ -67,7 +68,7 @@ function Model({ url, onLoaded, onHasAnimation }) {
       mixerRef.current?.stopAllAction();
       mixerRef.current = null;
     };
-  }, [url, camera, onLoaded, onHasAnimation]);
+  }, [url, fileType, camera, onLoaded, onHasAnimation]);
 
   if (error) {
     return (
@@ -79,7 +80,7 @@ function Model({ url, onLoaded, onHasAnimation }) {
     );
   }
 
-  if (!gltf) {
+  if (!scene) {
     return (
       <Html center>
         <div className="text-indigo-400 text-center">
@@ -90,7 +91,7 @@ function Model({ url, onLoaded, onHasAnimation }) {
     );
   }
 
-  return <primitive object={gltf.scene} />;
+  return <primitive object={scene} />;
 }
 
 function Lights() {
@@ -103,7 +104,7 @@ function Lights() {
   );
 }
 
-export default function ModelViewer({ modelUrl, label }) {
+export default function ModelViewer({ modelUrl, label, fileType = 'gltf' }) {
   const [autoRotate, setAutoRotate] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
   const [viewMode, setViewMode] = useState('standard');
@@ -195,6 +196,7 @@ export default function ModelViewer({ modelUrl, label }) {
 
             <Model
               url={proxiedUrl}
+              fileType={fileType}
               onLoaded={() => setLoaded(true)}
               onHasAnimation={setHasAnimation}
             />
