@@ -1,9 +1,6 @@
 import { Router } from 'express';
-import fetch from 'node-fetch';
 import multer from 'multer';
-import FormData from 'form-data';
 import fs from 'fs';
-import path from 'path';
 
 const router = Router();
 
@@ -12,7 +9,7 @@ const TRIPO_BASE = 'https://api.tripo3d.ai/v2/openapi';
 const upload = multer({
   dest: 'uploads/',
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
-  fileFilter: (req, file, cb) => {
+  fileFilter: (_req, file, cb) => {
     const allowed = ['image/jpeg', 'image/png', 'image/webp'];
     cb(null, allowed.includes(file.mimetype));
   },
@@ -32,11 +29,10 @@ router.post('/upload-image', upload.single('image'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No image file provided' });
 
+    const fileBuffer = fs.readFileSync(req.file.path);
+    const blob = new Blob([fileBuffer], { type: req.file.mimetype });
     const form = new FormData();
-    form.append('file', fs.createReadStream(req.file.path), {
-      filename: req.file.originalname,
-      contentType: req.file.mimetype,
-    });
+    form.append('file', blob, req.file.originalname || 'upload.jpg');
 
     const response = await fetch(`${TRIPO_BASE}/upload`, {
       method: 'POST',
@@ -123,8 +119,9 @@ router.get('/task/:taskId', async (req, res) => {
     };
 
     if (task.status === 'success' && task.output) {
-      result.model_url = task.output.model;          // GLB download URL
-      result.pbr_model_url = task.output.pbr_model;  // PBR version
+      // Tripo API may return 'model' (basic GLB) or 'pbr_model' (PBR GLB) or both
+      result.model_url = task.output.model || task.output.pbr_model;
+      result.pbr_model_url = task.output.pbr_model;
       result.rendered_image = task.output.rendered_image;
     }
 
@@ -149,10 +146,46 @@ router.get('/download', async (req, res) => {
     const filename = `model_${Date.now()}.glb`;
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Type', 'model/gltf-binary');
-    response.body.pipe(res);
+    const buffer = await response.arrayBuffer();
+    res.send(Buffer.from(buffer));
   } catch (err) {
     console.error('Download error:', err);
     res.status(500).json({ error: 'Download failed' });
+  }
+});
+
+// ──────────────────────────────────────────────
+// 5. Pipeline tasks: texture_model / convert_model / animate_rig / animate_retarget
+// ──────────────────────────────────────────────
+router.post('/pipeline', async (req, res) => {
+  try {
+    const { type, original_model_task_id, ...options } = req.body;
+
+    const VALID_TYPES = ['texture_model', 'convert_model', 'animate_rig', 'animate_retarget'];
+    if (!type || !VALID_TYPES.includes(type)) {
+      return res.status(400).json({ error: `type must be one of: ${VALID_TYPES.join(', ')}` });
+    }
+    if (!original_model_task_id) {
+      return res.status(400).json({ error: 'original_model_task_id is required' });
+    }
+
+    const body = { type, original_model_task_id, ...options };
+
+    const response = await fetch(`${TRIPO_BASE}/task`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(body),
+    });
+    const data = await response.json();
+
+    if (data.code !== 0) {
+      return res.status(400).json({ error: data.message || 'Pipeline task creation failed' });
+    }
+
+    res.json({ task_id: data.data.task_id });
+  } catch (err) {
+    console.error('Pipeline error:', err);
+    res.status(500).json({ error: 'Failed to create pipeline task' });
   }
 });
 

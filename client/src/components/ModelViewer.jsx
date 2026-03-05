@@ -1,75 +1,99 @@
-import { Canvas, useThree } from '@react-three/fiber';
+import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls, Environment, Grid, Html } from '@react-three/drei';
-import { Suspense, useEffect, useState, useMemo } from 'react';
+import { Suspense, useEffect, useState, useRef, useMemo } from 'react';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as THREE from 'three';
 
-function Model({ url, onLoaded }) {
-  const [scene, setScene] = useState(null);
+function Model({ url, onLoaded, onHasAnimation }) {
+  const [gltf, setGltf] = useState(null);
   const [error, setError] = useState(null);
+  const mixerRef = useRef(null);
   const { camera } = useThree();
+
+  // Advance animation mixer every frame
+  useFrame((_, delta) => {
+    mixerRef.current?.update(delta);
+  });
 
   useEffect(() => {
     const loader = new GLTFLoader();
-    setScene(null);
+    setGltf(null);
     setError(null);
+
+    // Clean up previous mixer
+    mixerRef.current?.stopAllAction();
+    mixerRef.current = null;
 
     loader.load(
       url,
-      (gltf) => {
-        const loadedScene = gltf.scene;
+      (loaded) => {
+        const s = loaded.scene;
 
-        // Auto-center and scale the model
-        const box = new THREE.Box3().setFromObject(loadedScene);
+        // Auto-center and scale
+        const box = new THREE.Box3().setFromObject(s);
         const center = box.getCenter(new THREE.Vector3());
         const size = box.getSize(new THREE.Vector3());
         const maxDim = Math.max(size.x, size.y, size.z);
         const scale = 2 / maxDim;
 
-        loadedScene.scale.setScalar(scale);
-        loadedScene.position.sub(center.multiplyScalar(scale));
-        loadedScene.position.y -= (box.min.y * scale);
+        s.scale.setScalar(scale);
+        s.position.sub(center.multiplyScalar(scale));
+        s.position.y -= box.min.y * scale;
 
-        // Adjust camera
         camera.position.set(3, 2, 3);
         camera.lookAt(0, 0, 0);
 
-        setScene(loadedScene);
+        // Wire up animations if present
+        if (loaded.animations?.length > 0) {
+          const mixer = new THREE.AnimationMixer(s);
+          loaded.animations.forEach(clip => mixer.clipAction(clip).play());
+          mixerRef.current = mixer;
+          onHasAnimation?.(true);
+        } else {
+          onHasAnimation?.(false);
+        }
+
+        setGltf(loaded);
         onLoaded?.();
       },
       undefined,
       (err) => {
         console.error('Model load error:', err);
-        setError('Failed to load 3D model');
+        setError('无法加载3D模型');
       }
     );
-  }, [url, camera, onLoaded]);
+
+    return () => {
+      mixerRef.current?.stopAllAction();
+      mixerRef.current = null;
+    };
+  }, [url, camera, onLoaded, onHasAnimation]);
 
   if (error) {
     return (
       <Html center>
-        <div className="text-red-400 text-center bg-gray-900/90 px-4 py-2 rounded-lg">
+        <div className="text-red-400 text-center bg-gray-900/90 px-4 py-2 rounded-lg text-sm">
           {error}
         </div>
       </Html>
     );
   }
 
-  if (!scene) {
+  if (!gltf) {
     return (
       <Html center>
         <div className="text-indigo-400 text-center">
           <div className="w-8 h-8 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-          Loading model...
+          <span className="text-sm">加载模型中...</span>
         </div>
       </Html>
     );
   }
 
-  return <primitive object={scene} />;
+  return <primitive object={gltf.scene} />;
 }
 
-function ViewCube() {
+function Lights() {
   return (
     <>
       <ambientLight intensity={0.5} />
@@ -79,61 +103,79 @@ function ViewCube() {
   );
 }
 
-export default function ModelViewer({ modelUrl }) {
-  const [viewMode, setViewMode] = useState('standard'); // standard | wireframe | matcap
+export default function ModelViewer({ modelUrl, label }) {
   const [autoRotate, setAutoRotate] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
+  const [viewMode, setViewMode] = useState('standard');
   const [loaded, setLoaded] = useState(false);
+  const [hasAnimation, setHasAnimation] = useState(false);
 
   const proxiedUrl = useMemo(() => modelUrl, [modelUrl]);
+
+  // Reset state when URL changes
+  useEffect(() => {
+    setLoaded(false);
+    setHasAnimation(false);
+    setAutoRotate(true);
+  }, [modelUrl]);
 
   if (!modelUrl) return null;
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex flex-wrap gap-2 items-center justify-between">
-        <div className="flex gap-2">
+      <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 border-b border-gray-800 bg-gray-900/60">
+        <div className="flex items-center gap-2">
+          {label && (
+            <span className="text-xs text-indigo-400 font-medium px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20">
+              {label}
+            </span>
+          )}
+          {hasAnimation && (
+            <span className="text-xs text-emerald-400 font-medium px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 animate-pulse">
+              ▶ 动画播放中
+            </span>
+          )}
           <button
             onClick={() => setAutoRotate(!autoRotate)}
-            className={`px-3 py-1.5 text-xs rounded-lg transition ${
-              autoRotate ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-400'
+            className={`px-3 py-1 text-xs rounded-md transition ${
+              autoRotate ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'
             }`}
           >
-            Auto Rotate
+            自动旋转
           </button>
           <button
             onClick={() => setShowGrid(!showGrid)}
-            className={`px-3 py-1.5 text-xs rounded-lg transition ${
-              showGrid ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-400'
+            className={`px-3 py-1 text-xs rounded-md transition ${
+              showGrid ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'
             }`}
           >
-            Grid
+            网格
           </button>
         </div>
-        <div className="flex gap-1 bg-gray-800 rounded-lg p-0.5">
+        <div className="flex gap-1 bg-gray-800 rounded-md p-0.5">
           {['standard', 'wireframe'].map((mode) => (
             <button
               key={mode}
               onClick={() => setViewMode(mode)}
-              className={`px-3 py-1 text-xs rounded-md capitalize transition ${
+              className={`px-3 py-1 text-xs rounded capitalize transition ${
                 viewMode === mode ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'
               }`}
             >
-              {mode}
+              {mode === 'standard' ? '实体' : '线框'}
             </button>
           ))}
         </div>
       </div>
 
       {/* 3D Canvas */}
-      <div className="w-full h-[500px] rounded-xl overflow-hidden bg-gray-950 border border-gray-700 relative">
+      <div className="flex-1 relative overflow-hidden bg-gray-950">
         <Canvas
           camera={{ position: [3, 2, 3], fov: 45, near: 0.01, far: 1000 }}
           gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.2 }}
         >
           <Suspense fallback={null}>
-            <ViewCube />
+            <Lights />
             <Environment preset="city" />
 
             {showGrid && (
@@ -151,24 +193,26 @@ export default function ModelViewer({ modelUrl }) {
               />
             )}
 
-            <Model url={proxiedUrl} onLoaded={() => setLoaded(true)} />
+            <Model
+              url={proxiedUrl}
+              onLoaded={() => setLoaded(true)}
+              onHasAnimation={setHasAnimation}
+            />
 
             <OrbitControls
               autoRotate={autoRotate}
-              autoRotateSpeed={2}
+              autoRotateSpeed={hasAnimation ? 0.5 : 2}
               enableDamping
               dampingFactor={0.05}
               minDistance={0.5}
               maxDistance={20}
-              maxPolarAngle={Math.PI / 1.5}
             />
           </Suspense>
         </Canvas>
 
-        {/* Interaction hint */}
         {loaded && (
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-xs text-gray-500 bg-gray-900/80 px-3 py-1 rounded-full pointer-events-none">
-            Left drag: rotate &middot; Scroll: zoom &middot; Right drag: pan
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-xs text-gray-500 bg-gray-900/80 px-3 py-1 rounded-full pointer-events-none whitespace-nowrap">
+            左键拖拽旋转 · 滚轮缩放 · 右键平移
           </div>
         )}
       </div>

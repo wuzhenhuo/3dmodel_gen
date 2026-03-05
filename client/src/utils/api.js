@@ -27,3 +27,12 @@ export async function checkHealth() {
   const { data } = await api.get('/health', { baseURL: '/api' });
   return data;
 }
+
+export async function runPipelineTask(type, originalTaskId, options = {}) {
+  const { data } = await api.post('/pipeline', {
+    type,
+    original_model_task_id: originalTaskId,
+    ...options,
+  });
+  return data.task_id;
+}
