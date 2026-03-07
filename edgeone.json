@@ -1,7 +1,7 @@
 {
   "build": {
     "rootDir": "client",
-    "command": "npm run build",
+    "command": "npm install && npm run build",
     "output": "dist"
   }
 }
