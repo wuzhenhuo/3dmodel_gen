@@ -4,7 +4,6 @@ AI辅助编舞 · 混元动作大模型 · by Wu Zhen · 2026
 
 基于腾讯 HY-Motion 的 AI 辅助编舞工作站，支持文字驱动动作生成与多轨时间线编辑，配套 3D 预览器实时回放。
 
-![界面预览](https://github.com/wuzhenhuo/3dmodel_gen/raw/master/docs/preview.png)
 
 ---
 
